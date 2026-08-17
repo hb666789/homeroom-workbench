@@ -162,8 +162,9 @@ const Grades = (function () {
           <h3>${esc(exam.name)}</h3>
           <div class="muted small">${esc(exam.date)} · ${esc(exam.type)}　满分：${exam.subjects.map(n => esc(n) + ' ' + Store.fullOf(n)).join('，')}</div>
         </div>
-        <div class="muted small">直接修改单元格即可自动保存并重算总分 / 排名 / 班级平均</div>
+        <div class="muted small">直接修改单元格即可自动保存并重算总分 / 排名 / 班级平均；低于预警线的分数自动标红</div>
       </div>
+      <div class="warn-count-line" id="warnCountLine">${warnCountHtml(exam)}</div>
       <div class="table-scroll"><table class="table score-table">
         <thead><tr>
           <th>学号</th><th>姓名</th>`;
@@ -178,10 +179,11 @@ const Grades = (function () {
       exam.subjects.forEach(n => {
         const v = Store.getScore(s.id, eid, n);
         const full = Store.fullOf(n);
-        const low = v != null && v < full * 0.6;
+        const line = Store.warnLineOf(n);
+        const low = v != null && v < line;
         html += `<td><input type="number" class="score-input ${low ? 'low' : ''}" min="0" max="${full}"
           value="${v == null ? '' : v}" data-sid="${s.id}" data-sub="${escA(n)}"
-          oninput="Grades.onScoreInput(event,'${eid}')"></td>`;
+          title="${escA(n)}预警线 ${line} 分" oninput="Grades.onScoreInput(event,'${eid}')"></td>`;
       });
       html += `<td class="cell-total" id="tot_${s.id}">${r ? r.total : ''}</td>
         <td id="avg_${s.id}">${r ? (r.total / r.count).toFixed(1) : ''}</td>
@@ -192,6 +194,32 @@ const Grades = (function () {
     exam.subjects.forEach(n => { html += `<td id="avg_${escA(n)}">${avgs[n] != null ? avgs[n] : '—'}</td>`; });
     html += `<td id="avg_overall">${avgs._overall != null ? avgs._overall : '—'}</td><td></td><td></td></tr></tfoot></table></div>`;
     return html;
+  }
+
+  /* 实时预警统计条 */
+  function warnCountHtml(exam) {
+    const ws = Store.warningsForExam(exam.id);
+    if (!ws.length) return '<span class="muted small">✅ 无成绩低于预警线</span>';
+    const stu = {};
+    ws.forEach(w => { stu[w.student.id] = 1; });
+    const subj = {};
+    ws.forEach(w => { subj[w.subject] = (subj[w.subject] || 0) + 1; });
+    const subjStr = Object.keys(subj).map(n => esc(n) + ' ' + subj[n] + ' 人次').join('、');
+    return `<span class="warn-count-txt">⚠️ 低于预警线：${ws.length} 条记录 / ${Object.keys(stu).length} 人（${subjStr}）</span>
+      <button class="btn btn-xs" onclick="Grades.selectWarnStudents('${exam.id}')">标出预警学生</button>`;
+  }
+
+  /* 高亮本场考试所有含预警的学生行 */
+  function selectWarnStudents(eid) {
+    const ws = Store.warningsForExam(eid);
+    document.querySelectorAll('.score-table tbody tr').forEach(tr => {
+      tr.classList.remove('row-warn');
+    });
+    ws.forEach(w => {
+      const tr = document.getElementById('row_' + w.student.id);
+      if (tr) tr.classList.add('row-warn');
+    });
+    if (ws.length) App.toast('已标出 ' + ws.length + ' 条预警记录对应学生行');
   }
 
   function onScoreInput(evt, eid) {
@@ -211,7 +239,8 @@ const Grades = (function () {
       }
     }
     inp.value = v;
-    inp.classList.toggle('low', v !== '' && v < full * 0.6);
+    const line = Store.warnLineOf(sub);
+    inp.classList.toggle('low', v !== '' && v < line);
     Store.setScore(sid, eid, sub, v === '' ? null : v);
 
     const rankings = Store.examRankings(eid);
@@ -237,6 +266,10 @@ const Grades = (function () {
     });
     const ao = document.getElementById('avg_overall');
     if (ao) ao.textContent = avgs._overall != null ? avgs._overall : '—';
+
+    /* 实时刷新预警统计条 */
+    const wcl = document.getElementById('warnCountLine');
+    if (wcl) wcl.innerHTML = warnCountHtml(exam);
   }
 
   /* ---------- 试卷题目 ---------- */
@@ -435,5 +468,5 @@ const Grades = (function () {
     if (exam) renderStatsCharts(exam);
   }
 
-  return { render, select, setTab, openExamForm, saveExam, delExam, onScoreInput, addQuestion, importQuestions, delQuestion, clearQuestions, setStatSubject, toggleQ };
+  return { render, select, setTab, openExamForm, saveExam, delExam, onScoreInput, addQuestion, importQuestions, delQuestion, clearQuestions, setStatSubject, toggleQ, selectWarnStudents };
 })();
