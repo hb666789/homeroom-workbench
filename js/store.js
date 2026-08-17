@@ -35,6 +35,7 @@ const Store = (function () {
     return {
       version: 2,
       subjects: DEFAULT_SUBJECTS.map(s => ({ ...s })),
+      warnLines: {},
       classes: [c],
       currentClassId: 'c1',
       nextClassId: 2
@@ -45,6 +46,7 @@ const Store = (function () {
   function normalize(d) {
     if (!d || typeof d !== 'object') return empty();
     if (!Array.isArray(d.subjects) || !d.subjects.length) d.subjects = DEFAULT_SUBJECTS.map(s => ({ ...s }));
+    if (!d.warnLines || typeof d.warnLines !== 'object') d.warnLines = {};
     if (!Array.isArray(d.classes) || !d.classes.length) {
       const cls = newClass(d.className || '高三(1)班', 'c1');
       cls.students = Array.isArray(d.students) ? d.students : [];
@@ -69,6 +71,7 @@ const Store = (function () {
         if (!s.subjects) s.subjects = {};
         if (!s.life) s.life = {};
         if (!Array.isArray(s.events)) s.events = [];
+        if (!Array.isArray(s.hiddenSubjects)) s.hiddenSubjects = [];
       });
     });
     if (!d.currentClassId || !d.classes.some(c => c.id === d.currentClassId)) d.currentClassId = d.classes[0].id;
@@ -155,6 +158,44 @@ const Store = (function () {
   }
   function setSubjects(list) { data.subjects = list; save(); }
 
+  /* ---------- 成绩预警线 ---------- */
+  /* 显式设置的预警线；未设置则返回 null */
+  function warnLineExplicit(name) {
+    return data.warnLines[name] != null ? Number(data.warnLines[name]) : null;
+  }
+  /* 生效的预警线：显式值，否则默认满分的 60% */
+  function warnLineOf(name) {
+    const ex = warnLineExplicit(name);
+    if (ex != null && ex > 0) return ex;
+    return Math.round(fullOf(name) * 0.6);
+  }
+  function setWarnLine(name, val) {
+    const v = Number(val);
+    if (isFinite(v) && v > 0) data.warnLines[name] = v;
+    else delete data.warnLines[name];
+    save();
+  }
+  function resetWarnLine(name) {
+    delete data.warnLines[name];
+    save();
+  }
+  /* 某次考试中的学科预警：{student, subject, score, line} */
+  function warningsForExam(eid) {
+    const exam = getExam(eid);
+    const c = currentClass();
+    const out = [];
+    if (!exam || !c) return out;
+    c.students.forEach(s => {
+      exam.subjects.forEach(n => {
+        const v = getScore(s.id, eid, n);
+        if (v == null) return;
+        const line = warnLineOf(n);
+        if (v < line) out.push({ student: s, subject: n, score: v, line });
+      });
+    });
+    return out;
+  }
+
   /* ---------- 学生 ---------- */
   function listStudents() { const c = currentClass(); return c ? c.students : []; }
   function getStudent(id) { const c = currentClass(); return c ? c.students.find(s => s.id === id) || null : null; }
@@ -172,8 +213,14 @@ const Store = (function () {
       dorm: info.dorm || '',
       phone: info.phone || '',
       parentPhone: info.parentPhone || '',
+      hukouType: info.hukouType || '',
+      nativePlace: info.nativePlace || '',
+      localStudent: info.localStudent || '',
+      xuejiStatus: info.xuejiStatus || '',
+      xuejiNo: info.xuejiNo || '',
       notes: info.notes || '',
       subjects: {},
+      hiddenSubjects: [],
       life: {},
       events: [],
       createdAt: Date.now()
@@ -216,6 +263,21 @@ const Store = (function () {
     const s = getStudent(id);
     if (!s || !s.subjects) return;
     delete s.subjects[subj];
+    save();
+  }
+  /* 删除（隐藏）该学生的一门学科：删除记录并记录到 hiddenSubjects，不再显示 */
+  function hideSubject(id, subj) {
+    const s = getStudent(id);
+    if (!s) return;
+    delete s.subjects[subj];
+    if (!Array.isArray(s.hiddenSubjects)) s.hiddenSubjects = [];
+    if (!s.hiddenSubjects.includes(subj)) s.hiddenSubjects.push(subj);
+    save();
+  }
+  function showSubject(id, subj) {
+    const s = getStudent(id);
+    if (!s) return;
+    if (Array.isArray(s.hiddenSubjects)) s.hiddenSubjects = s.hiddenSubjects.filter(n => n !== subj);
     save();
   }
 
@@ -492,6 +554,14 @@ const Store = (function () {
         health: '身体健康',
         notes: ''
       };
+      /* 基础信息补充字段示例 */
+      s.hukouType = Math.random() < 0.55 ? '城镇' : '农村';
+      s.nativePlace = ['湖南长沙', '湖南株洲', '湖南湘潭', '湖南衡阳', '湖南邵阳', '广东深圳', '广西桂林'][Math.floor(Math.random() * 7)];
+      s.localStudent = Math.random() < 0.75 ? '是' : '否';
+      s.xuejiStatus = Math.random() < 0.95 ? '在籍' : '借读';
+      let no = 'G';
+      for (let k = 0; k < 18; k++) no += Math.floor(Math.random() * 10);
+      s.xuejiNo = no;
       if (Math.random() < 0.4) {
         s.events.push({
           id: 'ev' + (c.nextId.event++),
@@ -542,8 +612,9 @@ const Store = (function () {
     className, setClassName,
     listClasses, getClass, currentClassId, setCurrentClass, addClass, renameClass, deleteClass, moveStudentToClass,
     listSubjects, fullOf, setSubjects,
+    warnLineExplicit, warnLineOf, setWarnLine, resetWarnLine, warningsForExam,
     listStudents, getStudent, addStudent, updateStudent, deleteStudent,
-    setSubjectInfo, removeSubjectInfo, setLifeInfo, addEvent, deleteEvent,
+    setSubjectInfo, removeSubjectInfo, hideSubject, showSubject, setLifeInfo, addEvent, deleteEvent,
     listExams, getExam, latestExam, addExam, updateExam, deleteExam, examFullSum,
     getScore, setScore, studentTotal, examRankings, classAvg,
     getQuestions, addQuestion, deleteQuestion, clearQuestions,
