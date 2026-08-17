@@ -1,6 +1,7 @@
 /* ============================================================
- * store.js — 数据层
- * 学生档案 / 考试成绩 数据模型 + localStorage 持久化
+ * store.js — 数据层 v2
+ * 多班级管理 / 学生档案 / 考试成绩 / 试卷题目与逐题统计
+ * localStorage 持久化，兼容 v1 数据自动迁移
  * ============================================================ */
 const Store = (function () {
   const KEY = 'homeroom_workbench_v1';
@@ -17,31 +18,60 @@ const Store = (function () {
   ];
   let data = null;
 
-  function empty() {
+  function newClass(name, id) {
     return {
-      version: 1,
-      className: '高三(1)班',
-      subjects: DEFAULT_SUBJECTS.map(s => ({ ...s })),
+      id: id || ('c' + Date.now()),
+      name: name || '新班级',
       students: [],
       exams: [],
       scores: {},
-      nextId: { student: 1, exam: 1, event: 1 }
+      qresults: {},
+      nextId: { student: 1, exam: 1, event: 1, question: 1 }
     };
   }
 
-  /* 兼容旧数据 / 补全字段 */
+  function empty() {
+    const c = newClass('高三(1)班', 'c1');
+    return {
+      version: 2,
+      subjects: DEFAULT_SUBJECTS.map(s => ({ ...s })),
+      classes: [c],
+      currentClassId: 'c1',
+      nextClassId: 2
+    };
+  }
+
+  /* 兼容旧数据 / 补全字段（v1 → v2 自动迁移） */
   function normalize(d) {
     if (!d || typeof d !== 'object') return empty();
     if (!Array.isArray(d.subjects) || !d.subjects.length) d.subjects = DEFAULT_SUBJECTS.map(s => ({ ...s }));
-    if (!d.scores || typeof d.scores !== 'object') d.scores = {};
-    if (!d.nextId) d.nextId = { student: 1, exam: 1, event: 1 };
-    if (!Array.isArray(d.students)) d.students = [];
-    if (!Array.isArray(d.exams)) d.exams = [];
-    d.students.forEach(s => {
-      if (!s.subjects) s.subjects = {};
-      if (!s.life) s.life = {};
-      if (!Array.isArray(s.events)) s.events = [];
+    if (!Array.isArray(d.classes) || !d.classes.length) {
+      const cls = newClass(d.className || '高三(1)班', 'c1');
+      cls.students = Array.isArray(d.students) ? d.students : [];
+      cls.exams = Array.isArray(d.exams) ? d.exams : [];
+      cls.scores = (d.scores && typeof d.scores === 'object') ? d.scores : {};
+      cls.qresults = (d.qresults && typeof d.qresults === 'object') ? d.qresults : {};
+      if (d.nextId) Object.assign(cls.nextId, d.nextId);
+      d.classes = [cls];
+      d.currentClassId = 'c1';
+      d.nextClassId = 2;
+    }
+    d.classes.forEach(c => {
+      if (!c.id) c.id = 'c' + Date.now() + Math.floor(Math.random() * 1000);
+      if (!c.name) c.name = '未命名班级';
+      if (!c.nextId) c.nextId = { student: 1, exam: 1, event: 1, question: 1 };
+      if (!c.nextId.question) c.nextId.question = 1;
+      if (!c.scores || typeof c.scores !== 'object') c.scores = {};
+      if (!c.qresults || typeof c.qresults !== 'object') c.qresults = {};
+      if (!Array.isArray(c.students)) c.students = [];
+      if (!Array.isArray(c.exams)) c.exams = [];
+      c.students.forEach(s => {
+        if (!s.subjects) s.subjects = {};
+        if (!s.life) s.life = {};
+        if (!Array.isArray(s.events)) s.events = [];
+      });
     });
+    if (!d.currentClassId || !d.classes.some(c => c.id === d.currentClassId)) d.currentClassId = d.classes[0].id;
     return d;
   }
 
@@ -55,19 +85,69 @@ const Store = (function () {
     }
     return data;
   }
-
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* 存储失败忽略 */ }
   }
-
   function raw() { return data; }
   function replace(d) { data = normalize(d); save(); }
   function reset() { data = empty(); save(); }
-  function hasData() { return !!(data.students.length || data.exams.length); }
-  function className() { return data.className || ''; }
-  function setClassName(v) { data.className = v; save(); }
+  function hasData() { return data.classes.some(c => c.students.length || c.exams.length); }
 
-  /* ---------- 科目 ---------- */
+  /* ---------- 班级 ---------- */
+  function listClasses() { return data.classes; }
+  function getClass(id) { return data.classes.find(c => c.id === id) || null; }
+  function currentClassId() { return data.currentClassId; }
+  function currentClass() { return getClass(data.currentClassId) || data.classes[0] || null; }
+  function setCurrentClass(id) {
+    if (getClass(id)) { data.currentClassId = id; save(); return true; }
+    return false;
+  }
+  function addClass(name) {
+    const c = newClass(name, 'c' + (data.nextClassId++));
+    data.classes.push(c);
+    data.currentClassId = c.id;
+    save();
+    return c;
+  }
+  function renameClass(id, name) {
+    const c = getClass(id);
+    if (c && name) { c.name = name; save(); }
+  }
+  function deleteClass(id) {
+    if (data.classes.length <= 1) return false;
+    data.classes = data.classes.filter(c => c.id !== id);
+    if (data.currentClassId === id) data.currentClassId = data.classes[0].id;
+    save();
+    return true;
+  }
+  function className() { const c = currentClass(); return c ? c.name : ''; }
+  function setClassName(v) { const c = currentClass(); if (c && v) { c.name = v; save(); } }
+
+  /* 把学生（含成绩与逐题记录）移到另一个班级 */
+  function moveStudentToClass(sid, targetClassId) {
+    const from = currentClass(), to = getClass(targetClassId);
+    if (!from || !to || from.id === to.id) return false;
+    const s = from.students.find(x => x.id === sid);
+    if (!s) return false;
+    from.students = from.students.filter(x => x.id !== sid);
+    to.students.push(s);
+    if (from.scores[sid]) { to.scores[sid] = from.scores[sid]; delete from.scores[sid]; }
+    Object.keys(from.qresults || {}).forEach(eid => {
+      const qm = from.qresults[eid] || {};
+      Object.keys(qm).forEach(qid => {
+        if (qm[qid] && sid in qm[qid]) {
+          if (!to.qresults[eid]) to.qresults[eid] = {};
+          if (!to.qresults[eid][qid]) to.qresults[eid][qid] = {};
+          to.qresults[eid][qid][sid] = qm[qid][sid];
+          delete qm[qid][sid];
+        }
+      });
+    });
+    save();
+    return true;
+  }
+
+  /* ---------- 科目（全局配置） ---------- */
   function listSubjects() { return data.subjects; }
   function fullOf(name) {
     const s = data.subjects.find(x => x.name === name);
@@ -76,12 +156,14 @@ const Store = (function () {
   function setSubjects(list) { data.subjects = list; save(); }
 
   /* ---------- 学生 ---------- */
-  function listStudents() { return data.students; }
-  function getStudent(id) { return data.students.find(s => s.id === id) || null; }
+  function listStudents() { const c = currentClass(); return c ? c.students : []; }
+  function getStudent(id) { const c = currentClass(); return c ? c.students.find(s => s.id === id) || null : null; }
 
   function addStudent(info) {
+    const c = currentClass();
+    if (!c) return null;
     const st = {
-      id: 's' + (data.nextId.student++),
+      id: 's' + (c.nextId.student++),
       name: info.name || '未命名',
       studentNo: info.studentNo || '',
       gender: info.gender || '',
@@ -96,7 +178,7 @@ const Store = (function () {
       events: [],
       createdAt: Date.now()
     };
-    data.students.push(st);
+    c.students.push(st);
     save();
     return st;
   }
@@ -110,8 +192,15 @@ const Store = (function () {
   }
 
   function deleteStudent(id) {
-    data.students = data.students.filter(s => s.id !== id);
-    delete data.scores[id];
+    const c = currentClass();
+    if (!c) return;
+    c.students = c.students.filter(s => s.id !== id);
+    delete c.scores[id];
+    Object.keys(c.qresults || {}).forEach(eid => {
+      Object.keys(c.qresults[eid] || {}).forEach(qid => {
+        if (c.qresults[eid][qid]) delete c.qresults[eid][qid][id];
+      });
+    });
     save();
   }
 
@@ -123,11 +212,18 @@ const Store = (function () {
     Object.assign(s.subjects[subj], info);
     save();
   }
+  function removeSubjectInfo(id, subj) {
+    const s = getStudent(id);
+    if (!s || !s.subjects) return;
+    delete s.subjects[subj];
+    save();
+  }
 
-  /* 生活情况：s.life = {personality, hobbies, family, relations, psychology, health, notes} */
+  /* 生活情况 */
   function setLifeInfo(id, info) {
     const s = getStudent(id);
     if (!s) return;
+    if (!s.life) s.life = {};
     Object.assign(s.life, info);
     save();
   }
@@ -135,8 +231,9 @@ const Store = (function () {
   /* 成长记录 */
   function addEvent(id, ev) {
     const s = getStudent(id);
-    if (!s) return null;
-    const item = { id: 'ev' + (data.nextId.event++), date: ev.date || '', title: ev.title || '', detail: ev.detail || '' };
+    const c = currentClass();
+    if (!s || !c) return null;
+    const item = { id: 'ev' + (c.nextId.event++), date: ev.date || '', title: ev.title || '', detail: ev.detail || '' };
     s.events.push(item);
     save();
     return item;
@@ -150,22 +247,26 @@ const Store = (function () {
 
   /* ---------- 考试 ---------- */
   function listExams() {
-    return data.exams.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const c = currentClass();
+    return c ? c.exams.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)) : [];
   }
-  function getExam(id) { return data.exams.find(e => e.id === id) || null; }
+  function getExam(id) { const c = currentClass(); return c ? c.exams.find(e => e.id === id) || null : null; }
   function latestExam() {
     const list = listExams();
     return list.length ? list[list.length - 1] : null;
   }
   function addExam(info) {
+    const c = currentClass();
+    if (!c) return null;
     const e = {
-      id: 'e' + (data.nextId.exam++),
+      id: 'e' + (c.nextId.exam++),
       name: info.name || '未命名考试',
       date: info.date || '',
       type: info.type || '月考',
-      subjects: (info.subjects && info.subjects.length) ? info.subjects.slice() : data.subjects.map(s => s.name)
+      subjects: (info.subjects && info.subjects.length) ? info.subjects.slice() : data.subjects.map(s => s.name),
+      paper: []
     };
-    data.exams.push(e);
+    c.exams.push(e);
     save();
     return e;
   }
@@ -173,12 +274,16 @@ const Store = (function () {
     const e = getExam(id);
     if (!e) return null;
     Object.keys(patch).forEach(k => { if (k !== 'id') e[k] = patch[k]; });
+    if (!Array.isArray(e.paper)) e.paper = [];
     save();
     return e;
   }
   function deleteExam(id) {
-    data.exams = data.exams.filter(e => e.id !== id);
-    Object.keys(data.scores).forEach(sid => { delete data.scores[sid][id]; });
+    const c = currentClass();
+    if (!c) return;
+    c.exams = c.exams.filter(e => e.id !== id);
+    Object.keys(c.scores).forEach(sid => { delete c.scores[sid][id]; });
+    delete c.qresults[id];
     save();
   }
   function examFullSum(exam) {
@@ -187,19 +292,21 @@ const Store = (function () {
 
   /* ---------- 成绩 ---------- */
   function getScore(sid, eid, subj) {
-    const m = data.scores[sid] && data.scores[sid][eid];
+    const c = currentClass();
+    const m = c && c.scores[sid] && c.scores[sid][eid];
     return m ? (m[subj] == null ? null : m[subj]) : null;
   }
   function setScore(sid, eid, subj, val) {
-    if (!data.scores[sid]) data.scores[sid] = {};
-    if (!data.scores[sid][eid]) data.scores[sid][eid] = {};
-    data.scores[sid][eid][subj] = (val === null || val === '' || val === undefined) ? null : Number(val);
+    const c = currentClass();
+    if (!c) return;
+    if (!c.scores[sid]) c.scores[sid] = {};
+    if (!c.scores[sid][eid]) c.scores[sid][eid] = {};
+    c.scores[sid][eid][subj] = (val === null || val === '' || val === undefined) ? null : Number(val);
     save();
   }
-
-  /* 单个学生某次考试的总分与已录入科目数 */
   function studentTotal(sid, eid, subjectNames) {
-    const m = data.scores[sid] && data.scores[sid][eid];
+    const c = currentClass();
+    const m = c && c.scores[sid] && c.scores[sid][eid];
     if (!m) return null;
     let total = 0, count = 0;
     subjectNames.forEach(n => {
@@ -208,13 +315,12 @@ const Store = (function () {
     });
     return count ? { total, count } : null;
   }
-
-  /* 某次考试排名（按总分降序，同分同名次） */
   function examRankings(eid) {
+    const c = currentClass();
     const exam = getExam(eid);
-    if (!exam) return [];
+    if (!c || !exam) return [];
     const rows = [];
-    data.students.forEach(s => {
+    c.students.forEach(s => {
       const t = studentTotal(s.id, eid, exam.subjects);
       if (t) rows.push({ student: s, total: t.total, count: t.count });
     });
@@ -226,16 +332,15 @@ const Store = (function () {
     });
     return rows;
   }
-
-  /* 某次考试各科班级平均分；_overall 为总体平均（所有学生所有科目） */
   function classAvg(eid) {
     const exam = getExam(eid);
+    const c = currentClass();
     const out = { _overall: null };
-    if (!exam) return out;
+    if (!exam || !c) return out;
     const sums = {}, counts = {};
     exam.subjects.forEach(n => { sums[n] = 0; counts[n] = 0; });
-    data.students.forEach(s => {
-      const m = data.scores[s.id] && data.scores[s.id][eid];
+    c.students.forEach(s => {
+      const m = c.scores[s.id] && c.scores[s.id][eid];
       if (!m) return;
       exam.subjects.forEach(n => {
         const v = m[n];
@@ -251,12 +356,103 @@ const Store = (function () {
     return out;
   }
 
+  /* ---------- 试卷题目与逐题统计 ---------- */
+  function getQuestions(eid) {
+    const exam = getExam(eid);
+    return exam && Array.isArray(exam.paper) ? exam.paper : [];
+  }
+  function addQuestion(eid, q) {
+    const exam = getExam(eid);
+    const c = currentClass();
+    if (!exam || !c) return null;
+    if (!Array.isArray(exam.paper)) exam.paper = [];
+    const item = {
+      id: 'q' + (c.nextId.question++),
+      subject: q.subject || '',
+      type: q.type || '其他',
+      title: q.title || '',
+      score: Number(q.score) || 0
+    };
+    exam.paper.push(item);
+    save();
+    return item;
+  }
+  function deleteQuestion(eid, qid) {
+    const exam = getExam(eid);
+    const c = currentClass();
+    if (!exam || !c) return;
+    exam.paper = (exam.paper || []).filter(q => q.id !== qid);
+    if (c.qresults[eid]) delete c.qresults[eid][qid];
+    save();
+  }
+  function clearQuestions(eid) {
+    const exam = getExam(eid);
+    const c = currentClass();
+    if (!exam || !c) return;
+    exam.paper = [];
+    c.qresults[eid] = {};
+    save();
+  }
+  /* 逐题对错：val = 1 正确 / 0 错误 / null 未答 */
+  function setQResult(eid, qid, sid, val) {
+    const c = currentClass();
+    if (!c) return;
+    if (!c.qresults[eid]) c.qresults[eid] = {};
+    if (!c.qresults[eid][qid]) c.qresults[eid][qid] = {};
+    c.qresults[eid][qid][sid] = val;
+    save();
+  }
+  function getQResult(eid, qid, sid) {
+    const c = currentClass();
+    const m = c && c.qresults[eid] && c.qresults[eid][qid];
+    return m ? (m[sid] == null ? null : m[sid]) : null;
+  }
+  function qStats(eid, qid) {
+    const c = currentClass();
+    const m = c && c.qresults[eid] && c.qresults[eid][qid] ? c.qresults[eid][qid] : {};
+    const students = c ? c.students : [];
+    let right = 0, wrong = 0, none = 0;
+    students.forEach(s => {
+      const v = m[s.id];
+      if (v === 1) right++;
+      else if (v === 0) wrong++;
+      else none++;
+    });
+    const total = students.length || 1;
+    const r = x => Math.round(x / total * 1000) / 10;
+    return { right, wrong, none, total, rightRate: r(right), wrongRate: r(wrong), noneRate: r(none) };
+  }
+
   /* ---------- 示例数据 ---------- */
+  const NAMES1 = ['王思远', '李雨桐', '张浩然', '刘欣怡', '陈子墨', '赵一诺', '孙嘉豪', '周诗涵',
+    '吴宇航', '郑晓彤', '钱博文', '冯若曦', '蒋天佑', '韩静怡', '杨明轩', '朱可欣',
+    '秦少杰', '许梦琪', '何俊熙', '吕欣然', '施文博', '孔慧敏', '曹骏驰', '严雨欣'];
+  const NAMES2 = ['陈立', '黄雨萱', '罗宇翔', '谢思琪', '谭俊杰', '苏婉婷', '邓凯', '彭佳怡',
+    '曾浩然', '萧雅文', '沈志强', '唐心怡'];
+
   function seedDemo() {
     reset();
-    const names = ['王思远', '李雨桐', '张浩然', '刘欣怡', '陈子墨', '赵一诺', '孙嘉豪', '周诗涵',
-      '吴宇航', '郑晓彤', '钱博文', '冯若曦', '蒋天佑', '韩静怡', '杨明轩', '朱可欣',
-      '秦少杰', '许梦琪', '何俊熙', '吕欣然', '施文博', '孔慧敏', '曹骏驰', '严雨欣'];
+    seedClass('高三(1)班', NAMES1, [
+      { name: '2025年9月月考', date: '2025-09-25', type: '月考' },
+      { name: '2025年10月期中', date: '2025-10-30', type: '期中' },
+      { name: '2025年11月月考', date: '2025-11-27', type: '月考' },
+      { name: '2025年12月月考', date: '2025-12-25', type: '月考' },
+      { name: '2026年1月期末', date: '2026-01-22', type: '期末' }
+    ], true);
+    seedClass('高二(3)班', NAMES2, [
+      { name: '2025年10月期中', date: '2025-10-30', type: '期中' },
+      { name: '2025年11月月考', date: '2025-11-27', type: '月考' },
+      { name: '2025年12月月考', date: '2025-12-25', type: '月考' }
+    ], false);
+    setCurrentClass(data.classes[0].id);
+    save();
+  }
+
+  function seedClass(cname, names, examDefs, isFirst) {
+    if (!isFirst) addClass(cname);
+    const c = currentClass();
+    if (cname) c.name = cname;
+
     names.forEach((n, i) => {
       addStudent({
         name: n,
@@ -265,17 +461,10 @@ const Store = (function () {
         seat: String(i + 1)
       });
     });
-    const examDefs = [
-      { name: '2025年9月月考', date: '2025-09-25', type: '月考' },
-      { name: '2025年10月期中', date: '2025-10-30', type: '期中' },
-      { name: '2025年11月月考', date: '2025-11-27', type: '月考' },
-      { name: '2025年12月月考', date: '2025-12-25', type: '月考' },
-      { name: '2026年1月期末', date: '2026-01-22', type: '期末' }
-    ];
     examDefs.forEach(d => addExam({ ...d, subjects: data.subjects.map(s => s.name) }));
 
     const subjects = data.subjects;
-    data.students.forEach(s => {
+    c.students.forEach(s => {
       const ability = {};
       subjects.forEach(sub => { ability[sub.name] = 0.55 + Math.random() * 0.38; });
       const i1 = Math.floor(Math.random() * subjects.length);
@@ -305,7 +494,7 @@ const Store = (function () {
       };
       if (Math.random() < 0.4) {
         s.events.push({
-          id: 'ev' + (data.nextId.event++),
+          id: 'ev' + (c.nextId.event++),
           date: '2025-10-15',
           title: '班级活动表现积极',
           detail: '运动会中积极参与，为班级争取荣誉。'
@@ -313,30 +502,52 @@ const Store = (function () {
       }
     });
 
-    data.exams.forEach((exam, ei) => {
-      data.students.forEach(s => {
+    c.exams.forEach((exam, ei) => {
+      c.students.forEach(s => {
         const m = {};
         subjects.forEach(sub => {
           let ab = s._ability[sub.name] + ei * 0.012 + (Math.random() * 0.1 - 0.05);
           ab = Math.min(0.98, Math.max(0.3, ab));
           m[sub.name] = Math.round(ab * sub.full);
         });
-        if (!data.scores[s.id]) data.scores[s.id] = {};
-        data.scores[s.id][exam.id] = m;
+        if (!c.scores[s.id]) c.scores[s.id] = {};
+        c.scores[s.id][exam.id] = m;
       });
     });
-    data.students.forEach(s => { delete s._ability; });
-    save();
+    c.students.forEach(s => { delete s._ability; });
+
+    /* 给第一班最近一次考试生成示例试卷与逐题统计 */
+    if (isFirst && c.exams.length) {
+      const last = c.exams[c.exams.length - 1];
+      const qDefs = [
+        { subject: '语文', type: '选择', title: '下列词语中加点字的读音全部正确的一项是', score: 3 },
+        { subject: '语文', type: '填空', title: '补写出下列名篇名句中的空缺部分（第1小题）', score: 5 },
+        { subject: '数学', type: '选择', title: '已知集合A={x|x²-3x+2<0}，则A中元素个数为', score: 5 },
+        { subject: '数学', type: '解答', title: '已知函数f(x)=x³-3x，求f(x)的单调区间', score: 12 },
+        { subject: '英语', type: '选择', title: '—How about the party? —Great! We had ____ good time.', score: 1.5 },
+        { subject: '英语', type: '阅读', title: '阅读理解 Passage A：第1题（文章主旨）', score: 2 }
+      ];
+      qDefs.forEach(qd => addQuestion(last.id, qd));
+      c.students.forEach(s => {
+        qDefs.forEach(qd => {
+          const q = last.paper.find(x => x.title === qd.title);
+          if (q) setQResult(last.id, q.id, s.id, Math.random() < 0.72 ? 1 : 0);
+        });
+      });
+    }
   }
 
   return {
     load, save, raw, replace, reset, hasData,
     className, setClassName,
+    listClasses, getClass, currentClassId, setCurrentClass, addClass, renameClass, deleteClass, moveStudentToClass,
     listSubjects, fullOf, setSubjects,
     listStudents, getStudent, addStudent, updateStudent, deleteStudent,
-    setSubjectInfo, setLifeInfo, addEvent, deleteEvent,
+    setSubjectInfo, removeSubjectInfo, setLifeInfo, addEvent, deleteEvent,
     listExams, getExam, latestExam, addExam, updateExam, deleteExam, examFullSum,
     getScore, setScore, studentTotal, examRankings, classAvg,
+    getQuestions, addQuestion, deleteQuestion, clearQuestions,
+    setQResult, getQResult, qStats,
     seedDemo
   };
 })();
