@@ -192,6 +192,10 @@ const App = (function () {
       const passRate = ranks.length ? Math.round(pass / ranks.length * 1000) / 10 : 0;
       const goodRate = ranks.length ? Math.round(good / ranks.length * 1000) / 10 : 0;
       const avgRate = avgs && avgs._overall != null && fullSum ? Math.round(avgs._overall / fullSum * 1000) / 10 : 0;
+      const warnings = lastExam ? Store.warningsForExam(lastExam.id) : [];
+      const warnStuMap = {};
+      warnings.forEach(w => { warnStuMap[w.student.id] = 1; });
+      const warnCount = Object.keys(warnStuMap).length;
       const dd = state.dashDetail;
       const C = Charts.COLORS;
 
@@ -205,6 +209,7 @@ const App = (function () {
           ${statCard('avg', '🎯', '最近平均分', avgs && avgs._overall != null ? avgs._overall : '—', fullSum ? `满分率 ${avgRate}%` : '')}
           ${statCard('dist', '✅', '及格率', passRate + '%', ranks.length ? `及格 ${pass}/${ranks.length}` : '')}
           ${statCard('dist', '⭐', '优秀率', goodRate + '%', ranks.length ? `优秀 ${good}/${ranks.length}` : '')}
+          ${statCard('warn', '⚠️', '学科预警', warnCount, warnCount ? '点击查看详情' : '暂无预警')}
         </div>`;
 
       if (!students.length) {
@@ -221,10 +226,16 @@ const App = (function () {
       /* ----- 点击模块后展开的详情面板 ----- */
       if (dd) {
         let detail = '';
-        if (dd === 'students' || dd === 'males' || dd === 'females') {
+        if (dd === 'males' || dd === 'females') {
+          const list = dd === 'males' ? males : females;
+          const label = dd === 'males' ? '男生' : '女生';
+          detail = `<h4>${label}名单（${list.length} 人）<span class="muted small">　点击姓名查看档案</span></h4>
+            <div class="name-chips">${chips(list)}</div>
+            ${list.length ? '' : '<div class="empty small">暂无' + label + '学生</div>'}`;
+        } else if (dd === 'students') {
           detail = `<div class="detail-grid">
             <div class="chart-box"><h4>性别比例</h4><div id="ddPie"></div></div>
-            <div class="chart-box"><h4>${dd === 'males' ? '男生名单' : dd === 'females' ? '女生名单' : '男女生名单'}</h4>
+            <div class="chart-box"><h4>男女生名单</h4>
               <div class="name-lists">
                 <div><div class="muted small" style="margin-bottom:6px">男生（${males.length}）</div><div class="name-chips">${chips(males)}</div></div>
                 <div><div class="muted small" style="margin-bottom:6px">女生（${females.length}）</div><div class="name-chips">${chips(females)}</div></div>
@@ -247,6 +258,24 @@ const App = (function () {
               </tbody></table>
             </div>
           </div>`;
+        } else if (dd === 'warn') {
+          if (!warnings.length) {
+            detail = `<h4>成绩预警 <span class="muted small">（最近考试：${esc(lastExam.name)}）</span></h4>
+              <div class="muted" style="padding:12px 0">🎉 暂无学科预警，全员成绩均在预警线以上</div>`;
+          } else {
+            detail = `<h4>成绩预警 <span class="muted small">（最近考试：${esc(lastExam.name)} · ${warnings.length} 条 / ${warnCount} 人）</span></h4>
+              <div class="table-scroll"><table class="table">
+                <thead><tr><th>学生</th><th>科目</th><th>得分</th><th>预警线</th><th>差值</th></tr></thead><tbody>
+                ${warnings.map(w => `<tr>
+                  <td><span class="chip" onclick="App.openStudentDetail('${w.student.id}')">${esc(w.student.name)}</span></td>
+                  <td>${esc(w.subject)}</td>
+                  <td class="warn-score">${w.score}</td>
+                  <td>${w.line}</td>
+                  <td class="warn-diff">${w.score - w.line}</td>
+                </tr>`).join('')}
+                </tbody></table></div>
+                <p class="muted small" style="margin-top:8px">点击学生姓名可查看档案；在「设置 → 成绩预警设置」中可自定义各科预警线。</p>`;
+          }
         }
         if (detail) html += `<div class="card dash-detail">${detail}</div>`;
       }
@@ -307,7 +336,7 @@ const App = (function () {
         : '<div class="chart-empty">暂无成绩</div>';
 
       /* 详情面板内图表 */
-      if (dd === 'students' || dd === 'males' || dd === 'females') {
+      if (dd === 'students') {
         Charts.pieChart(document.getElementById('ddPie'), {
           items: [
             { label: '男生', value: males.length, color: C[0] },
@@ -425,6 +454,24 @@ const App = (function () {
         </div>
       </div>`;
 
+      /* 成绩预警设置 */
+      html += `<div class="card">
+        <h3>成绩预警设置</h3>
+        <p class="muted small" style="margin-bottom:12px">为每个学科设置「预警线」分数：学生该科成绩低于预警线时，将在成绩录入（实时标红）、总览（预警统计）、学生档案（预警提示）中自动提醒。留空表示使用默认预警线（满分的 60%）。</p>
+        <div id="warnRows">
+          ${Store.listSubjects().map((s, i) => `
+            <div class="form-row warn-row">
+              <span class="warn-subj-name">${esc(s.name)}（满分 ${s.full}）</span>
+              <input type="number" class="input warn-line" id="warn_l_${i}" min="0" max="${s.full}" placeholder="默认 ${Math.round(s.full * 0.6)}" value="${Store.warnLineExplicit(s.name) != null ? escA(Store.warnLineExplicit(s.name)) : ''}">
+              <span class="muted small">预警线（分）</span>
+              <button class="btn btn-xs" onclick="App.Settings.resetWarnRow('${escA(s.name)}', ${i})">恢复默认</button>
+            </div>`).join('')}
+        </div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn btn-primary" onclick="App.Settings.saveWarnLines()">保存预警设置</button>
+        </div>
+      </div>`;
+
       /* 数据管理 */
       html += `<div class="card">
         <h3>数据管理</h3>
@@ -519,6 +566,34 @@ const App = (function () {
       Store.setSubjects(list);
       App.toast('科目设置已保存');
       App.renderView();
+    },
+
+    saveWarnLines() {
+      const box = document.getElementById('warnRows');
+      if (!box) return;
+      let ok = true;
+      Store.listSubjects().forEach((s, i) => {
+        const el = document.getElementById('warn_l_' + i);
+        if (!el) return;
+        const v = el.value.trim();
+        if (v === '') { Store.resetWarnLine(s.name); return; }
+        const n = Number(v);
+        if (!isFinite(n) || n <= 0 || n > s.full) {
+          ok = false;
+          App.toast(s.name + ' 预警线需在 1~' + s.full + ' 之间', 'error');
+          return;
+        }
+        Store.setWarnLine(s.name, n);
+      });
+      if (!ok) return;
+      App.toast('预警设置已保存');
+      App.renderView();
+    },
+    resetWarnRow(name, i) {
+      Store.resetWarnLine(name);
+      const el = document.getElementById('warn_l_' + i);
+      if (el) el.value = '';
+      App.toast('「' + name + '」已恢复默认预警线（满分 60%）');
     },
 
     exportData() {
