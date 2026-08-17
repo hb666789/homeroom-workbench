@@ -231,8 +231,14 @@ svg .legend-text { fill: #55607a; font-size: 12px; }
 /* ---------- 学科卡片 ---------- */
 .subj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 .subj-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: #fbfcfe; }
-.subj-card h5 { font-size: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; }
+.subj-card h5 { font-size: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.subj-card-ops { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .subj-card .field { margin-bottom: 8px; }
+.hidden-bar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 8px 10px; margin-bottom: 12px;
+  background: #fff8ef; border: 1px dashed #f0d9a8; border-radius: 8px;
+}
 
 /* ---------- 时间线 ---------- */
 .timeline-wrap { max-height: 280px; overflow: auto; padding-right: 6px; }
@@ -251,6 +257,26 @@ svg .legend-text { fill: #55607a; font-size: 12px; }
 /* ---------- 徽标 / 杂项 ---------- */
 .badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 12px; background: #eef1ff; color: var(--primary); }
 .badge-warn { background: #fff3e0; color: #b26a00; }
+.badge-danger { background: #fdecec; color: var(--danger); }
+
+/* ---------- 成绩预警 ---------- */
+.warn-count-line {
+  padding: 8px 12px; margin-bottom: 10px; border-radius: 8px;
+  background: #fff8ef; border: 1px dashed #f0d9a8;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.warn-count-txt { color: #b26a00; font-size: 13px; }
+.warn-score { color: var(--danger); font-weight: 700; }
+.warn-diff { color: var(--danger); }
+tr.row-warn { background: #fff6f0 !important; }
+tr.row-warn .score-input { border-color: #f0b98a; }
+.warn-box {
+  padding: 10px 12px; margin-bottom: 14px; border-radius: 8px;
+  background: #fff8ef; border: 1px solid #f0d9a8;
+}
+.warn-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.warn-subj-name { width: 150px; font-size: 13.5px; }
+.warn-line { width: 110px; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .empty { padding: 40px 20px; text-align: center; color: var(--muted); line-height: 1.9; }
