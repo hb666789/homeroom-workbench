@@ -38,6 +38,8 @@ const Students = (function () {
     const rankMap = {};
     if (lastExam) Store.examRankings(lastExam.id).forEach(r => { rankMap[r.student.id] = r; });
     const fullSum = lastExam ? Store.examFullSum(lastExam) : 0;
+    const warnSet = {};
+    if (lastExam) Store.warningsForExam(lastExam.id).forEach(w => { warnSet[w.student.id] = 1; });
     const sel = App.state.stuSel;
 
     let html = `
@@ -76,6 +78,7 @@ const Students = (function () {
         const total = r ? r.total : '—';
         const rank = r ? r.rank : '—';
         const weak = r && fullSum && r.total < fullSum * 0.6;
+        const warned = !!warnSet[s.id];
         html += `<tr class="${sel[s.id] ? 'row-sel' : ''}">
           <td><input type="checkbox" class="stu-chk" ${sel[s.id] ? 'checked' : ''} onchange="Students.toggleSel('${s.id}', this.checked)"></td>
           <td>${esc(s.studentNo) || '—'}</td>
@@ -84,7 +87,7 @@ const Students = (function () {
           <td>${esc(s.seat) || '—'}</td>
           <td>${total}</td>
           <td>${rank}</td>
-          <td>${weak ? '<span class="badge badge-warn">关注</span>' : ''}</td>
+          <td>${warned ? '<span class="badge badge-danger" title="最近考试有学科低于预警线">预警</span>' : ''}${weak ? '<span class="badge badge-warn">关注</span>' : ''}</td>
           <td class="ops">
             <button class="btn btn-xs" onclick="Students.openDetail('${s.id}')">档案</button>
             <button class="btn btn-xs" onclick="Students.openForm('${s.id}')">编辑</button>
@@ -200,6 +203,31 @@ const Students = (function () {
           <div class="field"><label>宿舍</label><input id="f_dorm" class="input" value="${escA(s ? s.dorm : '')}"></div>
           <div class="field"><label>本人电话</label><input id="f_phone" class="input" value="${escA(s ? s.phone : '')}"></div>
           <div class="field"><label>家长电话</label><input id="f_pphone" class="input" value="${escA(s ? s.parentPhone : '')}"></div>
+          <div class="field"><label>户口性质</label>
+            <select id="f_hukou" class="select">
+              <option value="">请选择</option>
+              <option ${s && s.hukouType === '城镇' ? 'selected' : ''}>城镇</option>
+              <option ${s && s.hukouType === '农村' ? 'selected' : ''}>农村</option>
+              <option ${s && s.hukouType === '其他' ? 'selected' : ''}>其他</option>
+            </select>
+          </div>
+          <div class="field"><label>籍贯</label>
+            <input id="f_native" class="input" placeholder="如：湖南长沙" value="${escA(s ? s.nativePlace || '' : '')}"></div>
+          <div class="field"><label>本地就读</label>
+            <select id="f_local" class="select">
+              <option value="">请选择</option>
+              <option ${s && s.localStudent === '是' ? 'selected' : ''}>是</option>
+              <option ${s && s.localStudent === '否' ? 'selected' : ''}>否</option>
+            </select>
+          </div>
+          <div class="field"><label>学籍状态</label>
+            <select id="f_xjstatus" class="select">
+              <option value="">请选择</option>
+              ${['在籍', '借读', '休学', '转学', '其他'].map(o => `<option ${s && s.xuejiStatus === o ? 'selected' : ''}>${o}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>学籍号</label>
+            <input id="f_xuejino" class="input" placeholder="全国学籍号" value="${escA(s ? s.xuejiNo || '' : '')}"></div>
         </div>
         <div class="field" style="margin-top:12px"><label>备注</label>
           <textarea id="f_notes" class="input" rows="2">${esc(s ? s.notes : '')}</textarea>
@@ -223,6 +251,11 @@ const Students = (function () {
       dorm: val('f_dorm').trim(),
       phone: val('f_phone').trim(),
       parentPhone: val('f_pphone').trim(),
+      hukouType: val('f_hukou'),
+      nativePlace: val('f_native').trim(),
+      localStudent: val('f_local'),
+      xuejiStatus: val('f_xjstatus'),
+      xuejiNo: val('f_xuejino').trim(),
       notes: val('f_notes')
     };
     if (sid) { Store.updateStudent(sid, info); App.toast('已保存'); }
@@ -275,7 +308,7 @@ const Students = (function () {
     if (tab === 'base') box.innerHTML = baseHtml(s);
     else if (tab === 'subjects') box.innerHTML = subjectsHtml(s);
     else if (tab === 'life') box.innerHTML = lifeHtml(s);
-    else if (tab === 'analysis') { box.innerHTML = analysisHtml(); renderAnalysisCharts(s); }
+    else if (tab === 'analysis') { box.innerHTML = analysisHtml(s); renderAnalysisCharts(s); }
   }
 
   /* ----- 基本信息 ----- */
@@ -296,6 +329,31 @@ const Students = (function () {
         <div class="field"><label>宿舍</label><input id="f_dorm" class="input" value="${escA(s.dorm)}"></div>
         <div class="field"><label>本人电话</label><input id="f_phone" class="input" value="${escA(s.phone)}"></div>
         <div class="field"><label>家长电话</label><input id="f_pphone" class="input" value="${escA(s.parentPhone)}"></div>
+        <div class="field"><label>户口性质</label>
+          <select id="f_hukou" class="select">
+            <option value="">请选择</option>
+            <option ${s.hukouType === '城镇' ? 'selected' : ''}>城镇</option>
+            <option ${s.hukouType === '农村' ? 'selected' : ''}>农村</option>
+            <option ${s.hukouType === '其他' ? 'selected' : ''}>其他</option>
+          </select>
+        </div>
+        <div class="field"><label>籍贯</label>
+          <input id="f_native" class="input" placeholder="如：湖南长沙" value="${escA(s.nativePlace || '')}"></div>
+        <div class="field"><label>本地就读</label>
+          <select id="f_local" class="select">
+            <option value="">请选择</option>
+            <option ${s.localStudent === '是' ? 'selected' : ''}>是</option>
+            <option ${s.localStudent === '否' ? 'selected' : ''}>否</option>
+          </select>
+        </div>
+        <div class="field"><label>学籍状态</label>
+          <select id="f_xjstatus" class="select">
+            <option value="">请选择</option>
+            ${['在籍', '借读', '休学', '转学', '其他'].map(o => `<option ${s.xuejiStatus === o ? 'selected' : ''}>${o}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>学籍号</label>
+          <input id="f_xuejino" class="input" placeholder="全国学籍号" value="${escA(s.xuejiNo || '')}"></div>
       </div>
       <div class="field" style="margin-top:12px"><label>备注</label>
         <textarea id="f_notes" class="input" rows="2">${esc(s.notes)}</textarea>
@@ -317,16 +375,23 @@ const Students = (function () {
       dorm: val('f_dorm').trim(),
       phone: val('f_phone').trim(),
       parentPhone: val('f_pphone').trim(),
+      hukouType: val('f_hukou'),
+      nativePlace: val('f_native').trim(),
+      localStudent: val('f_local'),
+      xuejiStatus: val('f_xjstatus'),
+      xuejiNo: val('f_xuejino').trim(),
       notes: val('f_notes')
     });
     App.toast('基本信息已保存');
   }
 
-  /* ----- 学科情况（全局科目 + 学生自定义学科） ----- */
+  /* ----- 学科情况（全局科目 + 学生自定义学科，可删除/恢复） ----- */
   function combinedSubjects(s) {
     const configuredNames = Store.listSubjects().map(c => c.name);
-    const custom = Object.keys(s.subjects || {}).filter(n => !configuredNames.includes(n));
+    const hidden = s.hiddenSubjects || [];
+    const custom = Object.keys(s.subjects || {}).filter(n => !configuredNames.includes(n) && !hidden.includes(n));
     return Store.listSubjects()
+      .filter(c => !hidden.includes(c.name))
       .map(c => ({ name: c.name, full: c.full, custom: false }))
       .concat(custom.map(n => ({ name: n, full: Store.fullOf(n), custom: true })));
   }
@@ -335,8 +400,17 @@ const Students = (function () {
     const opt = (cur, arr) => arr.map(o => `<option ${o === cur ? 'selected' : ''}>${o}</option>`).join('');
     const combined = combinedSubjects(s);
     const customCount = combined.filter(x => x.custom).length;
-    let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <span class="muted small">共 ${combined.length} 门学科${customCount ? '（含自定义 ' + customCount + ' 门）' : ''}</span>
+    const hidden = s.hiddenSubjects || [];
+    let html = '';
+    if (hidden.length) {
+      html += `<div class="hidden-bar">
+        <span class="muted small">已隐藏学科：</span>
+        ${hidden.map(n => `<span class="chip chip-warn" title="点击恢复显示" onclick="Students.restoreSubject('${s.id}','${escA(n)}')">${esc(n)} ↺</span>`).join('')}
+        <button class="btn btn-xs" onclick="Students.restoreAllSubjects('${s.id}')">全部恢复</button>
+      </div>`;
+    }
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span class="muted small">共 ${combined.length} 门学科${customCount ? '（含自定义 ' + customCount + ' 门）' : ''}${hidden.length ? '，已隐藏 ' + hidden.length + ' 门' : ''}</span>
       <button class="btn btn-primary" onclick="Students.addSubject('${s.id}')">+ 添加学科</button>
     </div>
     <div class="subj-grid">`;
@@ -345,9 +419,10 @@ const Students = (function () {
       html += `<div class="subj-card">
         <h5>
           <span>${esc(sub.name)}${sub.custom ? ' <span class="badge">自定义</span>' : ''}</span>
-          <span>${sub.custom
-            ? `<button class="btn btn-xs btn-danger" onclick="Students.delSubject('${s.id}','${escA(sub.name)}')">删除学科</button>`
-            : `<span class="muted small">满分 ${sub.full}</span>`}</span>
+          <span class="subj-card-ops">
+            ${sub.custom ? `<span class="muted small">满分 ${sub.full}</span>` : ''}
+            <button class="btn btn-xs btn-danger" onclick="Students.delSubject('${s.id}','${escA(sub.name)}')">删除学科</button>
+          </span>
         </h5>
         <div class="field"><label>当前水平</label>
           <select id="subj_level_${i}" class="select">${opt(info.level || '', ['优秀', '良好', '中等', '薄弱'])}</select></div>
@@ -414,14 +489,32 @@ const Students = (function () {
     const s = Store.getStudent(sid);
     if (s && s.subjects && s.subjects[name]) return App.toast('该学科已存在', 'error');
     Store.setSubjectInfo(sid, name, {});
+    /* 若该学科之前被隐藏，恢复显示 */
+    if (s && Array.isArray(s.hiddenSubjects) && s.hiddenSubjects.includes(name)) Store.showSubject(sid, name);
     App.closeModal();
     App.toast('已添加学科「' + name + '」，请填写情况后保存');
     activateTab(sid, 'subjects');
   }
   function delSubject(sid, name) {
-    if (!confirm('确定删除该学生的自定义学科「' + name + '」吗？')) return;
-    Store.removeSubjectInfo(sid, name);
-    App.toast('已删除学科');
+    const s = Store.getStudent(sid);
+    if (!s) return;
+    const isConfigured = Store.listSubjects().some(c => c.name === name);
+    if (!confirm('确定删除学科「' + name + '」吗？删除后将不在该学生的学科情况中显示，可在上方「已隐藏学科」中随时恢复。')) return;
+    if (isConfigured) Store.hideSubject(sid, name);
+    else Store.removeSubjectInfo(sid, name);
+    App.toast('已删除学科「' + name + '」');
+    activateTab(sid, 'subjects');
+  }
+  function restoreSubject(sid, name) {
+    Store.showSubject(sid, name);
+    App.toast('已恢复学科「' + name + '」');
+    activateTab(sid, 'subjects');
+  }
+  function restoreAllSubjects(sid) {
+    const s = Store.getStudent(sid);
+    if (!s) return;
+    (s.hiddenSubjects || []).slice().forEach(n => Store.showSubject(sid, n));
+    App.toast('已全部恢复');
     activateTab(sid, 'subjects');
   }
 
@@ -501,8 +594,21 @@ const Students = (function () {
   }
 
   /* ----- 成绩分析 ----- */
-  function analysisHtml() {
-    return `
+  function analysisHtml(s) {
+    const lastExam = Store.latestExam();
+    let warnHtml = '';
+    if (lastExam) {
+      const ws = Store.warningsForExam(lastExam.id).filter(w => w.student.id === s.id);
+      if (ws.length) {
+        warnHtml = `<div class="warn-box">
+          <div style="margin-bottom:6px"><b>⚠️ 成绩预警</b> <span class="muted small">（最近考试：${esc(lastExam.name)}，以下学科低于预警线）</span></div>
+          <div class="name-chips">${ws.map(w =>
+            `<span class="chip chip-warn" title="得分 ${w.score} 分，预警线 ${w.line} 分">${esc(w.subject)} ${w.score}/${w.line}</span>`
+          ).join('')}</div>
+        </div>`;
+      }
+    }
+    return warnHtml + `
       <div class="chart-grid">
         <div class="chart-box"><h4>各科成绩趋势</h4><div id="chartStuTrend"></div></div>
         <div class="chart-box"><h4>排名趋势（曲线越靠上排名越靠前）</h4><div id="chartStuRank"></div></div>
@@ -565,7 +671,7 @@ const Students = (function () {
 
   return {
     render, openForm, saveForm, delStudent,
-    openDetail, activateTab, saveBase, saveSubjects, addSubject, pickSubject, saveAddSubject, delSubject,
+    openDetail, activateTab, saveBase, saveSubjects, addSubject, pickSubject, saveAddSubject, delSubject, restoreSubject, restoreAllSubjects,
     saveLife, addEvent, delEvent,
     toggleSel, toggleAll, clearSel, batchEdit, saveBatchEdit, batchMove, saveBatchMove, batchDelete
   };
