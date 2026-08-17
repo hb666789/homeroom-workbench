@@ -200,8 +200,10 @@ svg .legend-text { fill: #55607a; font-size: 12px; }
   background: #fff; border-radius: 14px; width: 540px; max-width: 100%;
   max-height: 92vh; display: flex; flex-direction: column;
   box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
+  overflow: hidden;
 }
 .modal-lg { width: 940px; }
+.modal-head, .modal-foot, .tabs { flex-shrink: 0; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
 .modal-head h3 { font-size: 16px; }
 .detail-head { justify-content: flex-start; gap: 14px; }
@@ -270,6 +272,76 @@ ul.intro { padding-left: 20px; line-height: 2; }
 .toast.show { opacity: 1; transform: none; }
 .toast.error { background: #c0392b; }
 
+/* ---------- 班级切换 ---------- */
+.class-select {
+  width: 100%; margin-top: 5px; padding: 5px 8px;
+  background: rgba(255, 255, 255, .12); color: #fff;
+  border: 1px solid rgba(255, 255, 255, .18); border-radius: 6px;
+  font-size: 12.5px; font-family: inherit; cursor: pointer;
+}
+.class-select option { color: #1f2430; background: #fff; }
+
+/* ---------- 可点击统计卡片 ---------- */
+.stat-card.clickable { cursor: pointer; transition: all .15s; }
+.stat-card.clickable:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(59, 110, 246, .18); }
+.stat-card.clickable.active { border-color: var(--primary); background: #f5f8ff; }
+.stat-sub { color: var(--primary); font-size: 11px; }
+.stat-more { color: var(--muted); font-size: 13px; }
+
+/* ---------- 详情面板 ---------- */
+.dash-detail { border-color: #c9d6ff; background: #fbfcff; }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.name-lists { display: grid; gap: 12px; }
+.name-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  padding: 3px 11px; background: #eef1ff; color: var(--primary);
+  border-radius: 14px; font-size: 12px; cursor: pointer; transition: background .12s;
+}
+.chip:hover { background: #dfe6ff; }
+.chip-warn { background: #fff3e0; color: #b26a00; }
+.chip-warn:hover { background: #ffe8c2; }
+.pbar { background: #eef0f5; border-radius: 6px; height: 10px; overflow: hidden; }
+.pbar-fill { background: var(--primary); height: 100%; border-radius: 6px; }
+.pie-center { font-size: 20px; font-weight: 700; fill: #1f2430; }
+
+/* ---------- 批量选择 ---------- */
+.sel-toolbar {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  padding: 10px 14px; background: #eef1ff; border: 1px solid #d6ddff;
+  border-radius: 8px; margin-bottom: 12px; font-size: 13.5px;
+}
+.sel-toolbar b { color: var(--primary); }
+.stu-chk { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
+tr.row-sel { background: #f2f5ff; }
+
+/* ---------- 成绩页子页签 ---------- */
+.sub-tabs {
+  display: flex; gap: 4px; border-bottom: 1px solid var(--border);
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+.sub-tabs .tab { padding: 8px 14px; }
+
+/* ---------- 试卷题目 ---------- */
+.paper-add {
+  border: 1px dashed #c9d2e8; border-radius: 10px;
+  padding: 12px; margin-bottom: 14px; background: #fbfcfe;
+}
+.paper-add code { background: #eef1f6; padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+
+/* ---------- 逐题统计 ---------- */
+.q-table th { text-align: center; padding: 8px 6px; min-width: 92px; }
+.q-table td { text-align: center; padding: 4px 6px; }
+.qcell {
+  width: 36px; height: 28px; border: 1px solid var(--border);
+  border-radius: 6px; cursor: pointer; font-size: 13px;
+  background: #fff; color: #bbb; font-family: inherit; transition: all .12s;
+}
+.qcell:hover { border-color: var(--primary); }
+.qcell.q-ok { background: #e8f7ee; color: #1a9d55; border-color: #b9e6cb; }
+.qcell.q-no { background: #fdecec; color: var(--danger); border-color: #f3c1c2; }
+.q-rate-good { color: #1a9d55; font-weight: 700; }
+.q-rate-bad { color: var(--danger); font-weight: 700; }
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 900px) {
   #app { flex-direction: column; }
@@ -278,6 +350,7 @@ ul.intro { padding-left: 20px; line-height: 2; }
   .sidebar-foot { display: none; }
   .pane { grid-template-columns: 1fr; }
   .chart-grid { grid-template-columns: 1fr; }
+  .detail-grid { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   #main { padding: 16px; }
 }
