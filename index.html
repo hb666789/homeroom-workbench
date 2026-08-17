@@ -12,9 +12,9 @@
   <aside id="sidebar">
     <div class="brand">
       <div class="brand-logo">班</div>
-      <div>
+      <div style="flex:1;min-width:0">
         <div class="brand-title">班主任工作台</div>
-        <div class="brand-sub" id="brandClass">高三(1)班</div>
+        <select id="classSelect" class="class-select" onchange="App.switchClass(this.value)" title="切换班级"></select>
       </div>
     </div>
     <nav id="nav">
