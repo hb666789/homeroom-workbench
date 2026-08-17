@@ -157,7 +157,12 @@ const Charts = (function () {
         const bx = M.l + i * groupW + si * slotW + (slotW - barW) / 2;
         const bh = Math.max(1, M.t + ph - y(v));
         svg.appendChild(E('rect', { x: bx, y: y(v), width: barW, height: bh, rx: Math.min(3, barW / 4), fill: col }));
-        if (totalBars <= 36) svg.appendChild(T(bx + barW / 2, y(v) - 6, num(v), { 'class': 'axis-label', 'text-anchor': 'middle' }));
+        if (totalBars <= 36) {
+          const label = opts.showPercent
+            ? num(v) + ' (' + Math.round(v / maxV * 100) + '%)'
+            : num(v);
+          svg.appendChild(T(bx + barW / 2, y(v) - 6, label, { 'class': 'axis-label', 'text-anchor': 'middle' }));
+        }
       });
     });
 
@@ -255,5 +260,50 @@ const Charts = (function () {
     el.appendChild(svg);
   }
 
-  return { COLORS, lineChart, barChart, histogram, radarChart };
+  /* ---------- 饼图 ----------
+   * opts: { items:[{label,value,color}], showPercent }
+   */
+  function pieChart(el, opts) {
+    el.innerHTML = '';
+    const items = (opts.items || []).filter(i => i.value > 0);
+    if (!items.length) { emptyBox(el); return; }
+    const total = items.reduce((t, i) => t + i.value, 0);
+    const W = el.clientWidth || 560, H = 300;
+    const cx = 110, cy = H / 2;
+    const R = Math.min(95, H / 2 - 22);
+    const svg = svgRoot(W, H);
+
+    let a0 = -Math.PI / 2;
+    items.forEach((it, idx) => {
+      const col = it.color || COLORS[idx % COLORS.length];
+      const frac = it.value / total;
+      const a1 = a0 + frac * 2 * Math.PI;
+      const large = (a1 - a0) > Math.PI ? 1 : 0;
+      const x0 = cx + R * Math.cos(a0), y0 = cy + R * Math.sin(a0);
+      const x1 = cx + R * Math.cos(a1), y1 = cy + R * Math.sin(a1);
+      const d = 'M' + cx + ',' + cy +
+        ' L' + x0.toFixed(1) + ',' + y0.toFixed(1) +
+        ' A' + R + ',' + R + ' 0 ' + large + ' 1 ' + x1.toFixed(1) + ',' + y1.toFixed(1) + ' Z';
+      const p = E('path', { d, fill: col, stroke: '#fff', 'stroke-width': 1.5 });
+      tip(p, it.label + '：' + it.value + '（' + Math.round(frac * 1000) / 10 + '%）');
+      svg.appendChild(p);
+      a0 = a1;
+    });
+    svg.appendChild(T(cx, cy - 4, String(total), { 'class': 'pie-center', 'text-anchor': 'middle' }));
+    svg.appendChild(T(cx, cy + 16, '总计', { 'class': 'axis-label', 'text-anchor': 'middle' }));
+
+    /* 图例：数值 + 百分比 */
+    let lx = cx + R + 30, ly = 18;
+    if (lx + 200 > W) { lx = 14; ly = H - 18; } // 空间不足时放底部
+    items.forEach((it, idx) => {
+      const col = it.color || COLORS[idx % COLORS.length];
+      svg.appendChild(E('rect', { x: lx, y: ly - 8, width: 10, height: 10, rx: 2, fill: col }));
+      const pct = Math.round(it.value / total * 1000) / 10;
+      svg.appendChild(T(lx + 16, ly + 1, it.label + '　' + it.value + '（' + pct + '%）', { 'class': 'legend-text' }));
+      ly += 21;
+    });
+    el.appendChild(svg);
+  }
+
+  return { COLORS, lineChart, barChart, histogram, radarChart, pieChart };
 })();
